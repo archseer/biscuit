@@ -142,10 +142,10 @@ for their use with the various algorithms is listed in the relevant section on t
 
 |  Key Type | Support | Remarks |
 |:---------:|:-------:|:-------:|
-| `Ed25519` |    ✘    |         |
-|  `Ed448`  |    ✘    |         |
-|  `X25519` |    ✘    |         |
-|   `X448`  |    ✘    |         |
+| `Ed25519` |    ✔    |         |
+|  `Ed448`  |    ✔    |         |
+|  `X25519` |    ✔    |         |
+|   `X448`  |    ✔    |         |
 
 ## JSON Web Signature (JWS)
 
@@ -260,9 +260,9 @@ A list can be found
 
 | Parameter | Support | Remarks |
 |:---------:|:-------:|:-------:|
-|   `epk`   |    ✘    |         |
-|   `apu`   |    ✘    |         |
-|   `apv`   |    ✘    |         |
+|   `epk`   |    ✔    |         |
+|   `apu`   |    ✔    |         |
+|   `apv`   |    ✔    |         |
 
 ### JWE Header Parameters Used for AES GCM Key Encryption
 
@@ -306,7 +306,7 @@ A list can be found
 | `A192KW`             |    ✘    |                                                                                                                        |
 | `A256KW`             |    ✘    |                                                                                                                        |
 | `dir`                |    ✔    |                                                                                                                        |
-| `ECDH-ES`            |    ✘    |                                                                                                                        |
+| `ECDH-ES`            |    ✔    |                                                                                                                        |
 | `ECDH-ES+A128KW`     |    ✘    |                                                                                                                        |
 | `ECDH-ES+A192KW`     |    ✘    |                                                                                                                        |
 | `ECDH-ES+A256KW`     |    ✘    |                                                                                                                        |

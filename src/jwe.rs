@@ -164,6 +164,27 @@ pub struct CekAlgorithmHeader {
     /// The authentication tag resulting from the encryption
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<Vec<u8>>,
+
+    /// Ephemeral public key.
+    /// Used by the key agreement protocols.
+    /// Serialized to `epk`.
+    /// Defined in [RFC7518#4.6.1.1](https://tools.ietf.org/html/rfc7518#section-4.6.1.1).
+    #[serde(rename = "epk", skip_serializing_if = "Option::is_none")]
+    pub ephemeral_public_key: Option<Vec<u8>>,
+
+    /// Base64 encoded string containing public information about the producer.
+    /// Used by the key agreement protocols during KDF. Usually a hash of producer's public key.
+    /// Serialized to `apu`.
+    /// Defined in [RFC7518#4.6.1.2](https://tools.ietf.org/html/rfc7518#section-4.6.1.2).
+    #[serde(rename = "apu", skip_serializing_if = "Option::is_none")]
+    pub agreement_producer_info: Option<String>,
+
+    /// Base64 encoded string containing public information about the recipient.
+    /// Used by the key agreement protocols during KDF. Usually a hash of recipient's public key.
+    /// Serialized to `apv`.
+    /// Defined in [RFC7518#4.6.1.3](https://tools.ietf.org/html/rfc7518#section-4.6.1.3).
+    #[serde(rename = "apv", skip_serializing_if = "Option::is_none")]
+    pub agreement_recipient_info: Option<String>,
 }
 
 /// JWE Header, consisting of the registered fields and other custom fields
@@ -392,11 +413,15 @@ where
                     };
 
                 // RFC 7516 Section 5.1 describes the steps involved in encryption.
-                // From steps 1 to 8, we will first determine the CEK, and then encrypt the CEK.
-                let cek = header
-                    .registered
-                    .cek_algorithm
-                    .cek(header.registered.enc_algorithm, key)?;
+                // From steps 1 to 3, we will first determine the CEK.
+                // (Also step 6)
+                let cek = header.registered.cek_algorithm.cek(
+                    header.registered.enc_algorithm,
+                    key,
+                    key_option,
+                )?;
+
+                // Steps 4, 5: Determine the JWE Encrypted Key (encrypt the CEK).
                 let encrypted_cek = header.registered.cek_algorithm.wrap_key(
                     cek.algorithm.octect_key()?,
                     key,

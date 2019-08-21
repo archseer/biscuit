@@ -38,7 +38,7 @@ pub(crate) const NONE_ENCRYPTION_OPTIONS: &EncryptionOptions = &EncryptionOption
 
 /// Options to be passed in while performing an encryption operation, if required by the algorithm.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, variant_size_differences)]
 pub enum EncryptionOptions {
     /// No options are required. Most algorithms do not require additional parameters
     None,
@@ -51,6 +51,17 @@ pub enum EncryptionOptions {
         /// nonces and not reuse them. A simple way to keep track is to simply increment the nonce
         /// as a 96 bit counter.
         nonce: Vec<u8>,
+    },
+    /// Options for ECDH ES key agreement.
+    ECDH_ES {
+        /// Ephemeral public key.
+        ephemeral_public_key: jwk::JWK<Empty>,
+        /// Base64 encoded string containing public information about the producer.
+        /// Used by the key agreement protocols during KDF. Usually a hash of producer's public key.
+        agreement_producer_info: String,
+        /// Base64 encoded string containing public information about the recipient.
+        /// Used by the key agreement protocols during KDF. Usually a hash of recipient's public key.
+        agreement_recipient_info: String,
     },
 }
 
@@ -244,6 +255,7 @@ impl EncryptionOptions {
         match self {
             EncryptionOptions::None => "None",
             EncryptionOptions::AES_GCM { .. } => "AES GCM Nonce/Initialization Vector",
+            EncryptionOptions::ECDH_ES { .. } => "ECDH-ES Ephemeral Public Key",
         }
     }
 }
@@ -465,6 +477,7 @@ impl KeyManagementAlgorithm {
         &self,
         content_alg: ContentEncryptionAlgorithm,
         key: &jwk::JWK<T>,
+        options: &EncryptionOptions,
     ) -> Result<jwk::JWK<Empty>, Error>
     where
         T: Serialize + DeserializeOwned,
@@ -474,6 +487,7 @@ impl KeyManagementAlgorithm {
         match self {
             DirectSymmetricKey => self.cek_direct(key),
             A128GCMKW | A256GCMKW => self.cek_aes_gcm(content_alg),
+            ECDH_ES => self.cek_agreement(key, content_alg, options),
             _ => Err(Error::UnsupportedOperation),
         }
     }
@@ -486,6 +500,109 @@ impl KeyManagementAlgorithm {
             jwk::KeyType::Octect => Ok(key.clone_without_additional()),
             others => Err(unexpected_key_type_error!(jwk::KeyType::Octect, others)),
         }
+    }
+
+    fn cek_agreement<T>(
+        &self,
+        key: &jwk::JWK<T>,
+        content_alg: ContentEncryptionAlgorithm,
+        options: &EncryptionOptions,
+    ) -> Result<jwk::JWK<Empty>, Error>
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        let params = match key {
+            jwk::JWK {
+                algorithm: jwk::AlgorithmParameters::EllipticCurve(params),
+                ..
+            } => params,
+            _ => {
+                return Err(unexpected_key_type_error!(
+                    jwk::KeyType::EllipticCurve,
+                    key.key_type()
+                ))
+            }
+        };
+
+        let (epk, apu, apv) = match options {
+            EncryptionOptions::ECDH_ES {
+                ephemeral_public_key,
+                agreement_producer_info,
+                agreement_recipient_info,
+            } => (
+                ephemeral_public_key,
+                agreement_producer_info,
+                agreement_recipient_info,
+            ),
+            other => {
+                return Err(unexpected_encryption_options_error!(
+                    "EncryptionOptions::ECDH_ES",
+                    other
+                ))
+            }
+        };
+
+        // construct our private key
+        use x25519_dalek::{PublicKey, StaticSecret};
+
+        let mut buf: [u8; 32] = [0; 32];
+        buf.copy_from_slice(&params.x);
+        buf.copy_from_slice(&params.y);
+        let private_key = StaticSecret::from(buf);
+
+        let epk_params = match epk {
+            jwk::JWK {
+                algorithm: jwk::AlgorithmParameters::EllipticCurve(params),
+                ..
+            } => params,
+            _ => {
+                return Err(unexpected_key_type_error!(
+                    jwk::KeyType::EllipticCurve,
+                    key.key_type()
+                ))
+            }
+        };
+
+        // construct the ephemeral public key
+        let mut buf: [u8; 32] = [0; 32];
+        buf.copy_from_slice(&epk_params.x);
+        buf.copy_from_slice(&epk_params.y);
+        let public_key = PublicKey::from(buf);
+
+        // compute the shared secret
+        let z = private_key.diffie_hellman(&public_key);
+
+        use sha2::{Digest, Sha256};
+        // ConcatKDF (1 iteration since keyLen <= hashLen).
+        // See rfc7518 section 4.6 for reference.
+        let counter: u32 = 1;
+        let alg = serde_json::to_string(&content_alg).unwrap();
+        let mut buf: Vec<u8> = vec![];
+        buf.extend_from_slice(&(counter).to_be_bytes());
+        buf.extend_from_slice(z.as_bytes());
+        // otherinfo
+        buf.extend_from_slice(&(alg.len() as u32).to_be_bytes());
+        buf.extend_from_slice(alg.as_bytes());
+        buf.extend_from_slice(&(apu.len() as u32).to_be_bytes());
+        buf.extend_from_slice(apu.as_bytes());
+        buf.extend_from_slice(&(apv.len() as u32).to_be_bytes());
+        buf.extend_from_slice(apv.as_bytes());
+        buf.extend_from_slice(&256u32.to_be_bytes());
+
+        let content_key = Sha256::digest(&buf)[0..32].to_vec();
+
+        Ok(jwk::JWK {
+            algorithm: jwk::AlgorithmParameters::OctectKey {
+                value: content_key,
+                key_type: Default::default(),
+            },
+            common: jwk::CommonParameters {
+                public_key_use: Some(jwk::PublicKeyUse::Encryption),
+                algorithm: Some(Algorithm::ContentEncryption(content_alg)),
+                ..Default::default()
+            },
+            additional: Default::default(),
+        })
     }
 
     fn cek_aes_gcm(
@@ -518,9 +635,12 @@ impl KeyManagementAlgorithm {
 
         match self {
             A128GCMKW | A192GCMKW | A256GCMKW => self.aes_gcm_encrypt(payload, key, options),
-            DirectSymmetricKey => match *options {
+            // RFC 7516 5.1.5
+            // When Direct Key Agreement or Direct Encryption are employed, let
+            // the JWE Encrypted Key be the empty octet sequence.
+            DirectSymmetricKey | ECDH_ES => match options {
                 EncryptionOptions::None => Ok(Default::default()),
-                ref other => Err(unexpected_encryption_options_error!(
+                other => Err(unexpected_encryption_options_error!(
                     EncryptionOptions::None,
                     other
                 )),
@@ -1217,7 +1337,11 @@ mod tests {
         };
 
         let cek_alg = KeyManagementAlgorithm::DirectSymmetricKey;
-        let cek = not_err!(cek_alg.cek(jwa::ContentEncryptionAlgorithm::A256GCM, &key));
+        let cek = not_err!(cek_alg.cek(
+            jwa::ContentEncryptionAlgorithm::A256GCM,
+            &key,
+            NONE_ENCRYPTION_OPTIONS
+        ));
 
         assert!(
             verify_slices_are_equal(cek.octect_key().unwrap(), key.octect_key().unwrap()).is_ok()
@@ -1240,13 +1364,21 @@ mod tests {
         };
 
         let cek_alg = KeyManagementAlgorithm::A128GCMKW;
-        let cek = not_err!(cek_alg.cek(jwa::ContentEncryptionAlgorithm::A128GCM, &key));
+        let cek = not_err!(cek_alg.cek(
+            jwa::ContentEncryptionAlgorithm::A128GCM,
+            &key,
+            NONE_ENCRYPTION_OPTIONS
+        ));
         assert_eq!(cek.octect_key().unwrap().len(), 128 / 8);
         assert!(
             verify_slices_are_equal(cek.octect_key().unwrap(), key.octect_key().unwrap()).is_err()
         );
 
-        let cek = not_err!(cek_alg.cek(jwa::ContentEncryptionAlgorithm::A256GCM, &key));
+        let cek = not_err!(cek_alg.cek(
+            jwa::ContentEncryptionAlgorithm::A256GCM,
+            &key,
+            NONE_ENCRYPTION_OPTIONS
+        ));
         assert_eq!(cek.octect_key().unwrap().len(), 256 / 8);
         assert!(
             verify_slices_are_equal(cek.octect_key().unwrap(), key.octect_key().unwrap()).is_err()
@@ -1269,13 +1401,21 @@ mod tests {
         };
 
         let cek_alg = KeyManagementAlgorithm::A256GCMKW;
-        let cek = not_err!(cek_alg.cek(jwa::ContentEncryptionAlgorithm::A128GCM, &key));
+        let cek = not_err!(cek_alg.cek(
+            jwa::ContentEncryptionAlgorithm::A128GCM,
+            &key,
+            NONE_ENCRYPTION_OPTIONS
+        ));
         assert_eq!(cek.octect_key().unwrap().len(), 128 / 8);
         assert!(
             verify_slices_are_equal(cek.octect_key().unwrap(), key.octect_key().unwrap()).is_err()
         );
 
-        let cek = not_err!(cek_alg.cek(jwa::ContentEncryptionAlgorithm::A256GCM, &key));
+        let cek = not_err!(cek_alg.cek(
+            jwa::ContentEncryptionAlgorithm::A256GCM,
+            &key,
+            NONE_ENCRYPTION_OPTIONS
+        ));
         assert_eq!(cek.octect_key().unwrap().len(), 256 / 8);
         assert!(
             verify_slices_are_equal(cek.octect_key().unwrap(), key.octect_key().unwrap()).is_err()
@@ -1302,7 +1442,7 @@ mod tests {
 
         let cek_alg = KeyManagementAlgorithm::A128GCMKW;
         let enc_alg = jwa::ContentEncryptionAlgorithm::A128GCM; // determines the CEK
-        let cek = not_err!(cek_alg.cek(enc_alg, &key));
+        let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
         let decrypted_cek = not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key));
@@ -1334,7 +1474,7 @@ mod tests {
 
         let cek_alg = KeyManagementAlgorithm::A256GCMKW;
         let enc_alg = jwa::ContentEncryptionAlgorithm::A128GCM; // determines the CEK
-        let cek = not_err!(cek_alg.cek(enc_alg, &key));
+        let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
         let decrypted_cek = not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key));

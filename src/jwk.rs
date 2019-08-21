@@ -489,6 +489,16 @@ pub enum EllipticCurve {
     /// P-521 curve -- unsupported by `ring`.
     #[serde(rename = "P-521")]
     P521,
+    /// Ed25519
+    #[serde(rename = "Ed25519")]
+    ED25519,
+    /// Ed448
+    #[serde(rename = "Ed448")]
+    ED448,
+    /// X25519
+    X25519,
+    /// X448
+    X448,
 }
 
 impl Default for EllipticCurve {
