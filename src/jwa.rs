@@ -531,9 +531,8 @@ impl KeyManagementAlgorithm {
         // construct our private key
         use x25519_dalek::{PublicKey, StaticSecret};
 
-        let mut buf: [u8; 32] = [0; 32];
-        buf.copy_from_slice(&params.x);
-        buf.copy_from_slice(&params.y);
+        // TODO: ...
+        let buf: [u8; 32] = params.d.clone().unwrap().as_slice().try_into().unwrap();
         let private_key = StaticSecret::from(buf);
 
         let epk_params = match epk {
@@ -549,10 +548,9 @@ impl KeyManagementAlgorithm {
             }
         };
 
+        use std::convert::TryInto;
         // construct the ephemeral public key
-        let mut buf: [u8; 32] = [0; 32];
-        buf.copy_from_slice(&epk_params.x);
-        buf.copy_from_slice(&epk_params.y);
+        let buf: [u8; 32] = epk_params.x.as_slice().try_into().unwrap();
         let public_key = PublicKey::from(buf);
 
         // compute the shared secret
