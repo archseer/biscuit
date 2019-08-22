@@ -23,12 +23,10 @@ const AES_GCM_TAG_SIZE: usize = 128 / 8;
 /// AES GCM Nonce length, in bytes
 const AES_GCM_NONCE_LENGTH: usize = 96 / 8;
 
-lazy_static! {
-    /// A zeroed AES GCM Nonce EncryptionOptions
-    static ref AES_GCM_ZEROED_NONCE: EncryptionOptions = EncryptionOptions::AES_GCM {
-        nonce: vec![0; AES_GCM_NONCE_LENGTH],
-    };
-}
+/// A zeroed AES GCM Nonce EncryptionOptions
+const AES_GCM_ZEROED_NONCE: EncryptionOptions = EncryptionOptions::AES_GCM {
+    nonce: [0; AES_GCM_NONCE_LENGTH],
+};
 
 /// A default `None` `EncryptionOptions`
 pub(crate) const NONE_ENCRYPTION_OPTIONS: &EncryptionOptions = &EncryptionOptions::None;
@@ -47,7 +45,7 @@ pub enum EncryptionOptions {
         /// Users should keep track of previously used
         /// nonces and not reuse them. A simple way to keep track is to simply increment the nonce
         /// as a 96 bit counter.
-        nonce: Vec<u8>,
+        nonce: [u8; AES_GCM_NONCE_LENGTH],
     },
     /// Options for ECDH ES key agreement.
     ECDH_ES {
@@ -674,7 +672,8 @@ impl KeyManagementAlgorithm {
         }?;
         // FIXME: Should we check the nonce length here or leave it to ring?
 
-        aes_gcm_encrypt(algorithm, payload, nonce.as_slice(), &[], key)
+        // TODO: pass through as Copy with specific length
+        aes_gcm_encrypt(algorithm, payload, &nonce[..], &[], key)
     }
 
     fn aes_gcm_decrypt(
@@ -783,7 +782,7 @@ impl ContentEncryptionAlgorithm {
         }?;
         // FIXME: Should we check the nonce length here or leave it to ring?
 
-        aes_gcm_encrypt(algorithm, payload, nonce.as_slice(), aad, key)
+        aes_gcm_encrypt(algorithm, payload, &nonce[..], aad, key)
     }
 
     fn aes_gcm_decrypt(
@@ -871,8 +870,8 @@ fn aes_gcm_decrypt(
     Ok(plaintext.to_vec())
 }
 
-pub(crate) fn random_aes_gcm_nonce() -> Result<Vec<u8>, Error> {
-    let mut nonce: Vec<u8> = vec![0; AES_GCM_NONCE_LENGTH];
+pub(crate) fn random_aes_gcm_nonce() -> Result<[u8; AES_GCM_NONCE_LENGTH], Error> {
+    let mut nonce = [0; AES_GCM_NONCE_LENGTH];
     rng().fill(&mut nonce)?;
     Ok(nonce)
 }
