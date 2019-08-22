@@ -170,7 +170,7 @@ pub struct CekAlgorithmHeader {
     /// Serialized to `epk`.
     /// Defined in [RFC7518#4.6.1.1](https://tools.ietf.org/html/rfc7518#section-4.6.1.1).
     #[serde(rename = "epk", skip_serializing_if = "Option::is_none")]
-    pub ephemeral_public_key: Option<jwk::JWK<Empty>>,
+    pub ephemeral_public_key: Option<jwk::JWK>,
 
     /// Base64 encoded string containing public information about the producer.
     /// Used by the key agreement protocols during KDF. Usually a hash of producer's public key.
@@ -205,7 +205,7 @@ impl<T: Serialize + DeserializeOwned> CompactJson for Header<T> {}
 
 impl<T: Serialize + DeserializeOwned> Header<T> {
     /// Update CEK algorithm specific header fields based on a CEK encryption result
-    fn update_cek_algorithm(&mut self, encrypted: &EncryptionResult, key: jwk::JWK<Empty>) {
+    fn update_cek_algorithm(&mut self, encrypted: &EncryptionResult, key: jwk::JWK) {
         if !encrypted.nonce.is_empty() {
             self.cek_algorithm.nonce = Some(encrypted.nonce.clone());
         }
@@ -372,9 +372,9 @@ where
     ///
     /// If your `cek_algorithm` is `dir` or Direct, then the options will be used to encrypt
     /// your content directly.
-    pub fn into_encrypted<K: Serialize + DeserializeOwned>(
+    pub fn into_encrypted(
         self,
-        key: &jwk::JWK<K>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
     ) -> Result<Self, Error> {
         match self {
@@ -393,11 +393,7 @@ where
     ///
     /// If your `cek_algorithm` is `dir` or Direct, then the options will be used to encrypt
     /// your content directly.
-    pub fn encrypt<K: Serialize + DeserializeOwned>(
-        &self,
-        key: &jwk::JWK<K>,
-        options: &EncryptionOptions,
-    ) -> Result<Self, Error> {
+    pub fn encrypt(&self, key: &jwk::JWK, options: &EncryptionOptions) -> Result<Self, Error> {
         match *self {
             Compact::Encrypted(_) => Err(Error::UnsupportedOperation),
             Compact::Decrypted {
@@ -440,7 +436,7 @@ where
                 )?;
                 // Update header
                 let mut header = header.clone();
-                header.update_cek_algorithm(&encrypted_cek, key.clone_without_additional());
+                header.update_cek_algorithm(&encrypted_cek, key.clone());
 
                 // Steps 9 and 10 involves calculating an initialization vector (nonce) for content encryption. We do
                 // this as part of the encryption process later
@@ -476,9 +472,9 @@ where
 
     /// Consumes self and decrypt it. If the token is already decrypted,
     /// this is a no-op.
-    pub fn into_decrypted<K: Serialize + DeserializeOwned>(
+    pub fn into_decrypted(
         self,
-        key: &jwk::JWK<K>,
+        key: &jwk::JWK,
         cek_alg: KeyManagementAlgorithm,
         enc_alg: ContentEncryptionAlgorithm,
     ) -> Result<Self, Error> {
@@ -490,9 +486,9 @@ where
 
     /// Decrypt an encrypted JWE. Provide the expected algorithms to mitigate an attacker modifying the
     /// fields
-    pub fn decrypt<K: Serialize + DeserializeOwned>(
+    pub fn decrypt(
         &self,
-        key: &jwk::JWK<K>,
+        key: &jwk::JWK,
         cek_alg: KeyManagementAlgorithm,
         enc_alg: ContentEncryptionAlgorithm,
     ) -> Result<Self, Error> {
@@ -681,15 +677,15 @@ mod tests {
     use crate::jwa::{self, random_aes_gcm_nonce, rng};
     use crate::jws;
     use crate::test::assert_serde_json;
+    use crate::Empty;
     use crate::JWE;
 
-    fn cek_oct_key(len: usize) -> jwk::JWK<Empty> {
+    fn cek_oct_key(len: usize) -> jwk::JWK {
         // Construct the encryption key
         let mut key: Vec<u8> = vec![0; len];
         not_err!(rng().fill(&mut key));
         jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -697,7 +693,7 @@ mod tests {
         }
     }
 
-    fn cek_ecdh_key() -> jwk::JWK<Empty> {
+    fn cek_ecdh_key() -> jwk::JWK {
         // Construct the encryption key
         let mut x = vec![0; 32];
         not_err!(rng().fill(&mut x));
@@ -705,7 +701,6 @@ mod tests {
         not_err!(rng().fill(&mut y));
         jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::EllipticCurve(jwk::EllipticCurveKeyParameters {
                 key_type: jwk::EllipticCurveKeyType::EC,
                 curve: jwk::EllipticCurve::X25519,

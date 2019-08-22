@@ -7,14 +7,13 @@
 use std::fmt;
 
 use num::BigUint;
-use serde::de::{self, DeserializeOwned};
+use serde::de;
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::errors::Error;
 use crate::jwa::Algorithm;
 use crate::jws;
 use crate::serde_custom;
-use crate::Empty;
 
 /// Type of Key as specified in RFC 7518.
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize, Copy, Clone)]
@@ -511,37 +510,28 @@ impl Default for EllipticCurve {
 /// The members of the object represent properties of the key, including its value.
 /// Type `T` is a struct representing additional JWK properties
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct JWK<T> {
+pub struct JWK {
     /// Common JWK parameters
     #[serde(flatten)]
     pub common: CommonParameters,
     /// Key algorithm specific parameters
     #[serde(flatten)]
     pub algorithm: AlgorithmParameters,
-    /// Additional JWK parameters
-    #[serde(flatten)]
-    pub additional: T,
+    // /// Additional JWK parameters
+    // #[serde(flatten)]
+    // pub additional: std::collections::HashMap<String, serde_json::Value>,
 }
 
-impl<T: Serialize + DeserializeOwned> JWK<T> {
+impl JWK {
     /// Convenience to create a new bare-bones Octect key
-    pub fn new_octect_key(key: &[u8], additional: T) -> Self {
+    pub fn new_octect_key(key: &[u8]) -> Self {
         Self {
             algorithm: AlgorithmParameters::OctectKey {
                 value: key.to_vec(),
                 key_type: Default::default(),
             },
             common: Default::default(),
-            additional,
-        }
-    }
-
-    /// Convenience function to strip out the additional fields
-    pub fn clone_without_additional(&self) -> JWK<Empty> {
-        JWK {
-            common: self.common.clone(),
-            algorithm: self.algorithm.clone(),
-            additional: Default::default(),
+            // additional: Default::default(),
         }
     }
 
@@ -558,14 +548,14 @@ impl<T: Serialize + DeserializeOwned> JWK<T> {
 
 /// A JSON object that represents a set of JWKs.
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct JWKSet<T> {
+pub struct JWKSet {
     /// Containted JWKs
-    pub keys: Vec<JWK<T>>,
+    pub keys: Vec<JWK>,
 }
 
-impl<T> JWKSet<T> {
+impl JWKSet {
     /// Find the key in the set that matches the given key id, if any.
-    pub fn find(&self, kid: &str) -> Option<&JWK<T>> {
+    pub fn find(&self, kid: &str) -> Option<&JWK> {
         self.keys
             .iter()
             .find(|jwk| jwk.common.key_id.is_some() && jwk.common.key_id.as_ref().unwrap() == kid)
@@ -906,7 +896,7 @@ mod tests {
     /// Serialize and deserialize example JWK given in the RFC
     #[test]
     fn jwk_serde_smoke_test() {
-        let test_value: JWK<Empty> = JWK {
+        let test_value: JWK = JWK {
             common: CommonParameters {
                 key_id: Some("Public key used in JWS spec Appendix A.3 example".to_string()),
                 ..Default::default()
@@ -924,7 +914,6 @@ mod tests {
                 ],
                 d: None,
             }),
-            additional: Default::default(),
         };
         let expected_json = r#"{
   "kid": "Public key used in JWS spec Appendix A.3 example",
@@ -939,7 +928,7 @@ mod tests {
 
     #[test]
     fn jwk_set_symmetric_key() {
-        let test_value: JWKSet<Empty> = JWKSet {
+        let test_value: JWKSet = JWKSet {
             keys: vec![
                 JWK {
                     common: CommonParameters {
@@ -955,7 +944,6 @@ mod tests {
                             82,
                         ],
                     },
-                    additional: Default::default(),
                 },
                 JWK {
                     common: CommonParameters {
@@ -972,7 +960,6 @@ mod tests {
                             128, 163,
                         ],
                     },
-                    additional: Default::default(),
                 },
             ],
         };
@@ -995,7 +982,7 @@ mod tests {
     /// Example public key set
     #[test]
     fn jwk_set_public_key_serde_test() {
-        let test_value: JWKSet<Empty> = JWKSet {
+        let test_value: JWKSet = JWKSet {
             keys: vec![
                 JWK {
                     common: CommonParameters {
@@ -1019,7 +1006,6 @@ mod tests {
                         ],
                         d: None,
                     }),
-                    additional: Default::default(),
                 },
                 JWK {
                     common: CommonParameters {
@@ -1045,7 +1031,6 @@ mod tests {
                         e: BigUint::new(vec![65537]),
                         ..Default::default()
                     }),
-                    additional: Default::default(),
                 },
             ],
         };
@@ -1057,7 +1042,7 @@ mod tests {
     /// Example private key set
     #[test]
     fn jwk_set_private_key_serde_test() {
-        let test_value: JWKSet<Empty> = JWKSet {
+        let test_value: JWKSet = JWKSet {
             keys: vec![
                 JWK {
                     common: CommonParameters {
@@ -1083,7 +1068,6 @@ mod tests {
                             1,
                         ]),
                     }),
-                    additional: Default::default(),
                 },
                 JWK {
                     common: CommonParameters {
@@ -1161,7 +1145,6 @@ mod tests {
                         ])),
                         ..Default::default()
                     }),
-                    additional: Default::default(),
                 },
             ],
         };
@@ -1170,7 +1153,7 @@ mod tests {
         assert_serde_json(&test_value, Some(&expected_json));
     }
 
-    fn find_key_set() -> JWKSet<Empty> {
+    fn find_key_set() -> JWKSet {
         JWKSet {
             keys: vec![
                 JWK {
@@ -1182,7 +1165,6 @@ mod tests {
                         key_type: Default::default(),
                         value: Default::default(),
                     },
-                    additional: Default::default(),
                 },
                 JWK {
                     common: CommonParameters {
@@ -1193,7 +1175,6 @@ mod tests {
                         key_type: Default::default(),
                         value: Default::default(),
                     },
-                    additional: Default::default(),
                 },
                 JWK {
                     common: Default::default(),
@@ -1201,7 +1182,6 @@ mod tests {
                         key_type: Default::default(),
                         value: Default::default(),
                     },
-                    additional: Default::default(),
                 },
             ],
         }

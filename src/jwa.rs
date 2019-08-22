@@ -11,13 +11,10 @@ use std::fmt;
 use ring::constant_time::verify_slices_are_equal;
 use ring::rand::SystemRandom;
 use ring::{aead, hmac, rand, signature};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use crate::errors::Error;
 use crate::jwk;
 use crate::jws::Secret;
-use crate::Empty;
 
 pub use ring::rand::SecureRandom;
 
@@ -55,7 +52,7 @@ pub enum EncryptionOptions {
     /// Options for ECDH ES key agreement.
     ECDH_ES {
         /// Ephemeral public key.
-        ephemeral_public_key: jwk::JWK<Empty>,
+        ephemeral_public_key: jwk::JWK,
         /// Base64 encoded string containing public information about the producer.
         /// Used by the key agreement protocols during KDF. Usually a hash of producer's public key.
         agreement_producer_info: String,
@@ -473,15 +470,12 @@ impl KeyManagementAlgorithm {
     /// If the algorithm is `dir` or `DirectSymmetricKey`, the key provided is the CEK.
     /// Otherwise, the appropriate algorithm will be used to derive or generate the required CEK
     /// using the provided key.
-    pub fn cek<T>(
+    pub fn cek(
         &self,
         content_alg: ContentEncryptionAlgorithm,
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
-    ) -> Result<jwk::JWK<Empty>, Error>
-    where
-        T: Serialize + DeserializeOwned,
-    {
+    ) -> Result<jwk::JWK, Error> {
         use self::KeyManagementAlgorithm::*;
 
         match self {
@@ -492,25 +486,19 @@ impl KeyManagementAlgorithm {
         }
     }
 
-    fn cek_direct<T>(&self, key: &jwk::JWK<T>) -> Result<jwk::JWK<Empty>, Error>
-    where
-        T: Serialize + DeserializeOwned,
-    {
+    fn cek_direct(&self, key: &jwk::JWK) -> Result<jwk::JWK, Error> {
         match key.key_type() {
-            jwk::KeyType::Octect => Ok(key.clone_without_additional()),
+            jwk::KeyType::Octect => Ok(key.clone()),
             others => Err(unexpected_key_type_error!(jwk::KeyType::Octect, others)),
         }
     }
 
-    fn cek_agreement<T>(
+    fn cek_agreement(
         &self,
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         content_alg: ContentEncryptionAlgorithm,
         options: &EncryptionOptions,
-    ) -> Result<jwk::JWK<Empty>, Error>
-    where
-        T: Serialize + DeserializeOwned,
-    {
+    ) -> Result<jwk::JWK, Error> {
         let params = match key {
             jwk::JWK {
                 algorithm: jwk::AlgorithmParameters::EllipticCurve(params),
@@ -601,14 +589,10 @@ impl KeyManagementAlgorithm {
                 algorithm: Some(Algorithm::ContentEncryption(content_alg)),
                 ..Default::default()
             },
-            additional: Default::default(),
         })
     }
 
-    fn cek_aes_gcm(
-        &self,
-        content_alg: ContentEncryptionAlgorithm,
-    ) -> Result<jwk::JWK<Empty>, Error> {
+    fn cek_aes_gcm(&self, content_alg: ContentEncryptionAlgorithm) -> Result<jwk::JWK, Error> {
         let key = content_alg.generate_key()?;
         Ok(jwk::JWK {
             algorithm: jwk::AlgorithmParameters::OctectKey {
@@ -620,15 +604,14 @@ impl KeyManagementAlgorithm {
                 algorithm: Some(Algorithm::ContentEncryption(content_alg)),
                 ..Default::default()
             },
-            additional: Default::default(),
         })
     }
 
     /// Encrypt or wrap a Content Encryption Key with the provided algorithm
-    pub fn wrap_key<T: Serialize + DeserializeOwned>(
+    pub fn wrap_key(
         &self,
         payload: &[u8],
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
     ) -> Result<EncryptionResult, Error> {
         use self::KeyManagementAlgorithm::*;
@@ -651,27 +634,27 @@ impl KeyManagementAlgorithm {
     }
 
     /// Decrypt, unwrap or derive a CEK with the provided algorithm
-    pub fn unwrap_key<T: Serialize + DeserializeOwned>(
+    pub fn unwrap_key(
         &self,
         encrypted: &EncryptionResult,
         content_alg: ContentEncryptionAlgorithm,
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
-    ) -> Result<jwk::JWK<Empty>, Error> {
+    ) -> Result<jwk::JWK, Error> {
         use self::KeyManagementAlgorithm::*;
 
         match self {
             A128GCMKW | A192GCMKW | A256GCMKW => self.aes_gcm_decrypt(encrypted, content_alg, key),
             ECDH_ES => self.cek_agreement(key, content_alg, options),
-            DirectSymmetricKey => Ok(key.clone_without_additional()),
+            DirectSymmetricKey => Ok(key.clone()),
             _ => Err(Error::UnsupportedOperation),
         }
     }
 
-    fn aes_gcm_encrypt<T: Serialize + DeserializeOwned>(
+    fn aes_gcm_encrypt(
         &self,
         payload: &[u8],
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
     ) -> Result<EncryptionResult, Error> {
         use self::KeyManagementAlgorithm::*;
@@ -694,12 +677,12 @@ impl KeyManagementAlgorithm {
         aes_gcm_encrypt(algorithm, payload, nonce.as_slice(), &[], key)
     }
 
-    fn aes_gcm_decrypt<T: Serialize + DeserializeOwned>(
+    fn aes_gcm_decrypt(
         &self,
         encrypted: &EncryptionResult,
         content_alg: ContentEncryptionAlgorithm,
-        key: &jwk::JWK<T>,
-    ) -> Result<jwk::JWK<Empty>, Error> {
+        key: &jwk::JWK,
+    ) -> Result<jwk::JWK, Error> {
         use self::KeyManagementAlgorithm::*;
 
         let algorithm = match self {
@@ -719,7 +702,6 @@ impl KeyManagementAlgorithm {
                 algorithm: Some(Algorithm::ContentEncryption(content_alg)),
                 ..Default::default()
             },
-            additional: Default::default(),
         })
     }
 }
@@ -741,11 +723,11 @@ impl ContentEncryptionAlgorithm {
     }
 
     /// Encrypt some payload with the provided algorith
-    pub fn encrypt<T: Serialize + DeserializeOwned>(
+    pub fn encrypt(
         &self,
         payload: &[u8],
         aad: &[u8],
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
     ) -> Result<EncryptionResult, Error> {
         use self::ContentEncryptionAlgorithm::*;
@@ -757,11 +739,7 @@ impl ContentEncryptionAlgorithm {
     }
 
     /// Decrypt some payload with the provided algorith,
-    pub fn decrypt<T: Serialize + DeserializeOwned>(
-        &self,
-        encrypted: &EncryptionResult,
-        key: &jwk::JWK<T>,
-    ) -> Result<Vec<u8>, Error> {
+    pub fn decrypt(&self, encrypted: &EncryptionResult, key: &jwk::JWK) -> Result<Vec<u8>, Error> {
         use self::ContentEncryptionAlgorithm::*;
 
         match self {
@@ -781,11 +759,11 @@ impl ContentEncryptionAlgorithm {
         }
     }
 
-    fn aes_gcm_encrypt<T: Serialize + DeserializeOwned>(
+    fn aes_gcm_encrypt(
         &self,
         payload: &[u8],
         aad: &[u8],
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
         options: &EncryptionOptions,
     ) -> Result<EncryptionResult, Error> {
         use self::ContentEncryptionAlgorithm::*;
@@ -808,10 +786,10 @@ impl ContentEncryptionAlgorithm {
         aes_gcm_encrypt(algorithm, payload, nonce.as_slice(), aad, key)
     }
 
-    fn aes_gcm_decrypt<T: Serialize + DeserializeOwned>(
+    fn aes_gcm_decrypt(
         &self,
         encrypted: &EncryptionResult,
-        key: &jwk::JWK<T>,
+        key: &jwk::JWK,
     ) -> Result<Vec<u8>, Error> {
         use self::ContentEncryptionAlgorithm::*;
 
@@ -836,12 +814,12 @@ pub(crate) fn rng() -> &'static SystemRandom {
 }
 
 /// Encrypt a payload with AES GCM
-fn aes_gcm_encrypt<T: Serialize + DeserializeOwned>(
+fn aes_gcm_encrypt(
     algorithm: &'static aead::Algorithm,
     payload: &[u8],
     nonce: &[u8],
     aad: &[u8],
-    key: &jwk::JWK<T>,
+    key: &jwk::JWK,
 ) -> Result<EncryptionResult, Error> {
     // JWA needs a 128 bit tag length. We need to assert that the algorithm has 128 bit tag length
     assert_eq!(algorithm.tag_len(), AES_GCM_TAG_SIZE);
@@ -868,10 +846,10 @@ fn aes_gcm_encrypt<T: Serialize + DeserializeOwned>(
 }
 
 /// Decrypts a payload with AES GCM
-fn aes_gcm_decrypt<T: Serialize + DeserializeOwned>(
+fn aes_gcm_decrypt(
     algorithm: &'static aead::Algorithm,
     encrypted: &EncryptionResult,
-    key: &jwk::JWK<T>,
+    key: &jwk::JWK,
 ) -> Result<Vec<u8>, Error> {
     // JWA needs a 128 bit tag length. We need to assert that the algorithm has 128 bit tag length
     assert_eq!(algorithm.tag_len(), AES_GCM_TAG_SIZE);
@@ -1219,9 +1197,8 @@ mod tests {
         const PAYLOAD: &str = "这个世界值得我们奋战！";
         let key: Vec<u8> = vec![0; 128 / 8];
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1247,9 +1224,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 128 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1275,9 +1251,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 256 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1302,9 +1277,8 @@ mod tests {
         const PAYLOAD: &str = "这个世界值得我们奋战！";
         let key: Vec<u8> = vec![0; 256 / 8];
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1330,9 +1304,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 256 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1357,9 +1330,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 128 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1394,9 +1366,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 256 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1430,9 +1401,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 128 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1463,9 +1433,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 256 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1512,9 +1481,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 128 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
@@ -1540,9 +1508,8 @@ mod tests {
         let mut key: Vec<u8> = vec![0; 256 / 8];
         not_err!(rng().fill(&mut key));
 
-        let key = jwk::JWK::<Empty> {
+        let key = jwk::JWK {
             common: Default::default(),
-            additional: Default::default(),
             algorithm: jwk::AlgorithmParameters::OctectKey {
                 key_type: Default::default(),
                 value: key,
