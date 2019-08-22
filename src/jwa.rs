@@ -1311,7 +1311,7 @@ mod tests {
         let cek = not_err!(cek_alg.cek(
             jwa::ContentEncryptionAlgorithm::A256GCM,
             &key,
-            NONE_ENCRYPTION_OPTIONS
+            &NONE_ENCRYPTION_OPTIONS
         ));
 
         assert!(
@@ -1337,7 +1337,7 @@ mod tests {
         let cek = not_err!(cek_alg.cek(
             jwa::ContentEncryptionAlgorithm::A128GCM,
             &key,
-            NONE_ENCRYPTION_OPTIONS
+            &NONE_ENCRYPTION_OPTIONS
         ));
         assert_eq!(cek.octect_key().unwrap().len(), 128 / 8);
         assert!(
@@ -1347,7 +1347,7 @@ mod tests {
         let cek = not_err!(cek_alg.cek(
             jwa::ContentEncryptionAlgorithm::A256GCM,
             &key,
-            NONE_ENCRYPTION_OPTIONS
+            &NONE_ENCRYPTION_OPTIONS
         ));
         assert_eq!(cek.octect_key().unwrap().len(), 256 / 8);
         assert!(
@@ -1373,7 +1373,7 @@ mod tests {
         let cek = not_err!(cek_alg.cek(
             jwa::ContentEncryptionAlgorithm::A128GCM,
             &key,
-            NONE_ENCRYPTION_OPTIONS
+            &NONE_ENCRYPTION_OPTIONS
         ));
         assert_eq!(cek.octect_key().unwrap().len(), 128 / 8);
         assert!(
@@ -1383,7 +1383,7 @@ mod tests {
         let cek = not_err!(cek_alg.cek(
             jwa::ContentEncryptionAlgorithm::A256GCM,
             &key,
-            NONE_ENCRYPTION_OPTIONS
+            &NONE_ENCRYPTION_OPTIONS
         ));
         assert_eq!(cek.octect_key().unwrap().len(), 256 / 8);
         assert!(
@@ -1410,11 +1410,11 @@ mod tests {
 
         let cek_alg = KeyManagementAlgorithm::A128GCMKW;
         let enc_alg = jwa::ContentEncryptionAlgorithm::A128GCM; // determines the CEK
-        let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
+        let cek = not_err!(cek_alg.cek(enc_alg, &key, &NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
         let decrypted_cek =
-            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
+            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, &NONE_ENCRYPTION_OPTIONS));
 
         assert!(verify_slices_are_equal(
             cek.octect_key().unwrap(),
@@ -1442,11 +1442,11 @@ mod tests {
 
         let cek_alg = KeyManagementAlgorithm::A256GCMKW;
         let enc_alg = jwa::ContentEncryptionAlgorithm::A128GCM; // determines the CEK
-        let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
+        let cek = not_err!(cek_alg.cek(enc_alg, &key, &NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
         let decrypted_cek =
-            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
+            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, &NONE_ENCRYPTION_OPTIONS));
 
         assert!(verify_slices_are_equal(
             cek.octect_key().unwrap(),

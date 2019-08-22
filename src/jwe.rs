@@ -694,18 +694,18 @@ mod tests {
     }
 
     fn cek_ecdh_key() -> jwk::JWK {
+        use x25519_dalek::{PublicKey, StaticSecret};
         // Construct the encryption key
-        let mut x = vec![0; 32];
-        not_err!(rng().fill(&mut x));
-        let mut y = vec![0; 32];
-        not_err!(rng().fill(&mut y));
+        let mut d: [u8; 32] = [0; 32];
+        not_err!(rng().fill(&mut d));
+        let private_key = StaticSecret::from(d);
         jwk::JWK {
             common: Default::default(),
             algorithm: jwk::AlgorithmParameters::EllipticCurve(jwk::EllipticCurveKeyParameters {
                 key_type: jwk::EllipticCurveKeyType::EC,
                 curve: jwk::EllipticCurve::X25519,
-                x,
-                y,
+                d: Some(d.to_vec()),
+                x: PublicKey::from(&private_key).as_bytes().to_vec(),
                 ..Default::default()
             }),
         }
@@ -842,7 +842,10 @@ mod tests {
             payload.as_bytes().to_vec(),
         );
 
-        let recipient_public_key = cek_ecdh_key();
+        let recipient_key = cek_ecdh_key();
+        let recipient_public_key = recipient_key.clone();
+
+        println!("recipient_public_key: {:?}", recipient_public_key);
 
         let options = EncryptionOptions::ECDH_ES {
             ephemeral_public_key: recipient_public_key,
@@ -873,7 +876,7 @@ mod tests {
 
         // Decrypt
         let decrypted_jwe = not_err!(encrypted_jwe.into_decrypted(
-            &key,
+            &recipient_key,
             KeyManagementAlgorithm::ECDH_ES,
             ContentEncryptionAlgorithm::A256GCM
         ));
