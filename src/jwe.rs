@@ -406,7 +406,7 @@ where
                 let (key_option, content_option): (_, Cow<'_, _>) =
                     match header.registered.cek_algorithm {
                         KeyManagementAlgorithm::DirectSymmetricKey => {
-                            (jwa::NONE_ENCRYPTION_OPTIONS, Cow::Borrowed(options))
+                            (&jwa::NONE_ENCRYPTION_OPTIONS, Cow::Borrowed(options))
                         }
                         _ => (
                             options,

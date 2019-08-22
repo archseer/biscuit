@@ -29,7 +29,7 @@ const AES_GCM_ZEROED_NONCE: EncryptionOptions = EncryptionOptions::AES_GCM {
 };
 
 /// A default `None` `EncryptionOptions`
-pub(crate) const NONE_ENCRYPTION_OPTIONS: &EncryptionOptions = &EncryptionOptions::None;
+pub(crate) const NONE_ENCRYPTION_OPTIONS: EncryptionOptions = EncryptionOptions::None;
 
 /// Options to be passed in while performing an encryption operation, if required by the algorithm.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -803,13 +803,11 @@ impl ContentEncryptionAlgorithm {
 
 /// Return a psuedo random number generator
 pub(crate) fn rng() -> &'static SystemRandom {
-    use std::ops::Deref;
-
     lazy_static! {
         static ref RANDOM: SystemRandom = SystemRandom::new();
     }
 
-    RANDOM.deref()
+    &RANDOM
 }
 
 /// Encrypt a payload with AES GCM
