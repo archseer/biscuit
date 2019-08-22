@@ -638,7 +638,8 @@ impl KeyManagementAlgorithm {
             // RFC 7516 5.1.5
             // When Direct Key Agreement or Direct Encryption are employed, let
             // the JWE Encrypted Key be the empty octet sequence.
-            DirectSymmetricKey | ECDH_ES => match options {
+            ECDH_ES => Ok(Default::default()),
+            DirectSymmetricKey => match options {
                 EncryptionOptions::None => Ok(Default::default()),
                 other => Err(unexpected_encryption_options_error!(
                     EncryptionOptions::None,
@@ -649,17 +650,19 @@ impl KeyManagementAlgorithm {
         }
     }
 
-    /// Decrypt or unwrap a CEK with the provided algorithm
+    /// Decrypt, unwrap or derive a CEK with the provided algorithm
     pub fn unwrap_key<T: Serialize + DeserializeOwned>(
         &self,
         encrypted: &EncryptionResult,
         content_alg: ContentEncryptionAlgorithm,
         key: &jwk::JWK<T>,
+        options: &EncryptionOptions,
     ) -> Result<jwk::JWK<Empty>, Error> {
         use self::KeyManagementAlgorithm::*;
 
         match self {
             A128GCMKW | A192GCMKW | A256GCMKW => self.aes_gcm_decrypt(encrypted, content_alg, key),
+            ECDH_ES => self.cek_agreement(key, content_alg, options),
             DirectSymmetricKey => Ok(key.clone_without_additional()),
             _ => Err(Error::UnsupportedOperation),
         }
@@ -1445,7 +1448,8 @@ mod tests {
         let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
-        let decrypted_cek = not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key));
+        let decrypted_cek =
+            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         assert!(verify_slices_are_equal(
             cek.octect_key().unwrap(),
@@ -1477,7 +1481,8 @@ mod tests {
         let cek = not_err!(cek_alg.cek(enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         let encrypted_cek = not_err!(cek_alg.wrap_key(cek.octect_key().unwrap(), &key, &options));
-        let decrypted_cek = not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key));
+        let decrypted_cek =
+            not_err!(cek_alg.unwrap_key(&encrypted_cek, enc_alg, &key, NONE_ENCRYPTION_OPTIONS));
 
         assert!(verify_slices_are_equal(
             cek.octect_key().unwrap(),

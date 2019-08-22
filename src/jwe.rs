@@ -170,7 +170,7 @@ pub struct CekAlgorithmHeader {
     /// Serialized to `epk`.
     /// Defined in [RFC7518#4.6.1.1](https://tools.ietf.org/html/rfc7518#section-4.6.1.1).
     #[serde(rename = "epk", skip_serializing_if = "Option::is_none")]
-    pub ephemeral_public_key: Option<Vec<u8>>,
+    pub ephemeral_public_key: Option<jwk::JWK<Empty>>,
 
     /// Base64 encoded string containing public information about the producer.
     /// Used by the key agreement protocols during KDF. Usually a hash of producer's public key.
@@ -205,13 +205,24 @@ impl<T: Serialize + DeserializeOwned> CompactJson for Header<T> {}
 
 impl<T: Serialize + DeserializeOwned> Header<T> {
     /// Update CEK algorithm specific header fields based on a CEK encryption result
-    fn update_cek_algorithm(&mut self, encrypted: &EncryptionResult) {
+    fn update_cek_algorithm(&mut self, encrypted: &EncryptionResult, key: jwk::JWK<Empty>) {
         if !encrypted.nonce.is_empty() {
             self.cek_algorithm.nonce = Some(encrypted.nonce.clone());
         }
 
         if !encrypted.tag.is_empty() {
             self.cek_algorithm.tag = Some(encrypted.tag.clone());
+        }
+
+        if let jwk::JWK {
+            algorithm: jwk::AlgorithmParameters::EllipticCurve(..),
+            ..
+        } = key
+        {
+            // TODO this is wrong, should derive pubkey
+            self.cek_algorithm.ephemeral_public_key = Some(key);
+            self.cek_algorithm.agreement_producer_info = Some("".to_string());
+            self.cek_algorithm.agreement_recipient_info = Some("".to_string());
         }
     }
 
@@ -429,7 +440,7 @@ where
                 )?;
                 // Update header
                 let mut header = header.clone();
-                header.update_cek_algorithm(&encrypted_cek);
+                header.update_cek_algorithm(&encrypted_cek, key.clone_without_additional());
 
                 // Steps 9 and 10 involves calculating an initialization vector (nonce) for content encryption. We do
                 // this as part of the encryption process later
@@ -512,12 +523,34 @@ where
 
                 // TODO: Steps 4-5 not implemented at the moment.
 
+                let options = match cek_alg {
+                    KeyManagementAlgorithm::ECDH_ES => EncryptionOptions::ECDH_ES {
+                        ephemeral_public_key: header
+                            .cek_algorithm
+                            .ephemeral_public_key
+                            .clone()
+                            .unwrap(),
+                        agreement_producer_info: header
+                            .cek_algorithm
+                            .agreement_producer_info
+                            .clone()
+                            .unwrap(),
+                        agreement_recipient_info: header
+                            .cek_algorithm
+                            .agreement_recipient_info
+                            .clone()
+                            .unwrap(),
+                    },
+                    _ => jwa::NONE_ENCRYPTION_OPTIONS.clone(),
+                };
+
                 // Steps 6-13 involve the computation of the cek
                 let cek_encryption_result = header.extract_cek_encryption_result(&encrypted_cek);
                 let cek = header.registered.cek_algorithm.unwrap_key(
                     &cek_encryption_result,
                     header.registered.enc_algorithm,
                     key,
+                    &options,
                 )?;
 
                 // Build encryption result as per steps 14-15
@@ -664,6 +697,25 @@ mod tests {
         }
     }
 
+    fn cek_ecdh_key() -> jwk::JWK<Empty> {
+        // Construct the encryption key
+        let mut x = vec![0; 32];
+        not_err!(rng().fill(&mut x));
+        let mut y = vec![0; 32];
+        not_err!(rng().fill(&mut y));
+        jwk::JWK {
+            common: Default::default(),
+            additional: Default::default(),
+            algorithm: jwk::AlgorithmParameters::EllipticCurve(jwk::EllipticCurveKeyParameters {
+                key_type: jwk::EllipticCurveKeyType::EC,
+                curve: jwk::EllipticCurve::X25519,
+                x,
+                y,
+                ..Default::default()
+            }),
+        }
+    }
+
     #[test]
     fn compression_algorithm_serde_token() {
         #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -775,6 +827,66 @@ mod tests {
         };
         let test_json = r#"{"alg":"RSA-OAEP","enc":"A256GCM","something":"foobar"}"#;
         assert_serde_json(&test_value, Some(&test_json));
+    }
+
+    #[test]
+    fn jwe_ecdh_es_a256gcm_string_round_trip() {
+        use std::str;
+
+        // Construct the encryption key
+        let key = cek_ecdh_key();
+
+        // Construct the JWE
+        let payload = "The true sign of intelligence is not knowledge but imagination.";
+        let jwe = Compact::new_decrypted(
+            From::from(RegisteredHeader {
+                cek_algorithm: KeyManagementAlgorithm::ECDH_ES,
+                enc_algorithm: ContentEncryptionAlgorithm::A256GCM,
+                ..Default::default()
+            }),
+            payload.as_bytes().to_vec(),
+        );
+
+        let recipient_public_key = cek_ecdh_key();
+
+        let options = EncryptionOptions::ECDH_ES {
+            ephemeral_public_key: recipient_public_key,
+            agreement_producer_info: "".to_string(),
+            agreement_recipient_info: "".to_string(),
+        };
+
+        // Encrypt
+        let encrypted_jwe = not_err!(jwe.encrypt(&key, &options));
+
+        {
+            // Check that new header values are added
+            let compact = not_err!(encrypted_jwe.encrypted());
+            let header: Header<Empty> = not_err!(compact.part(0));
+            assert!(header.cek_algorithm.ephemeral_public_key.is_some());
+            assert!(header.cek_algorithm.agreement_producer_info.is_some());
+            assert!(header.cek_algorithm.agreement_recipient_info.is_some());
+
+            // Check that the encrypted key part is empty
+            let cek: Vec<u8> = not_err!(compact.part(1));
+            assert_eq!(0, cek.len());
+        }
+
+        // Serde test
+        let json = not_err!(serde_json::to_string(&encrypted_jwe));
+        let deserialized_json: Compact<Vec<u8>, Empty> = not_err!(serde_json::from_str(&json));
+        assert_eq!(deserialized_json, encrypted_jwe);
+
+        // Decrypt
+        let decrypted_jwe = not_err!(encrypted_jwe.into_decrypted(
+            &key,
+            KeyManagementAlgorithm::ECDH_ES,
+            ContentEncryptionAlgorithm::A256GCM
+        ));
+        assert_eq!(jwe, decrypted_jwe);
+
+        let decrypted_payload: &Vec<u8> = not_err!(decrypted_jwe.payload());
+        let decrypted_str = not_err!(str::from_utf8(&*decrypted_payload));
+        assert_eq!(decrypted_str, payload);
     }
 
     #[test]
