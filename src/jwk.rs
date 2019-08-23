@@ -24,10 +24,10 @@ pub enum KeyType {
     RSA,
     /// Octet sequence, representing symmetric keys
     #[serde(rename = "oct")]
-    Octect,
+    Octet,
     /// Octet string key pairs
     #[serde(rename = "OKP")]
-    OctectKeyPair,
+    OctetKeyPair,
 }
 
 impl KeyType {
@@ -36,8 +36,8 @@ impl KeyType {
         match self {
             KeyType::EllipticCurve => "Elliptic curve (EC) key",
             KeyType::RSA => "RSA Key",
-            KeyType::Octect => "Key byte sequence",
-            KeyType::OctectKeyPair => "Octet string key pairs",
+            KeyType::Octet => "Key byte sequence",
+            KeyType::OctetKeyPair => "Octet string key pairs",
         }
     }
 }
@@ -235,13 +235,13 @@ pub enum AlgorithmParameters {
     /// A RSA Public or Private Key
     RSA(RSAKeyParameters),
 
-    /// A symmetric Octect key
-    OctectKey {
-        /// Key type value for an Octect Key
+    /// A symmetric Octet key
+    OctetKey {
+        /// Key type value for an Octet Key
         #[serde(rename = "kty")]
-        key_type: OctectKeyType,
+        key_type: OctetKeyType,
 
-        /// The octect key value
+        /// The octet key value
         #[serde(rename = "k", with = "serde_custom::byte_sequence")]
         value: Vec<u8>,
     },
@@ -252,7 +252,7 @@ impl fmt::Debug for AlgorithmParameters {
         let algo_type = match *self {
             AlgorithmParameters::EllipticCurve(_) => "EllipticCurve",
             AlgorithmParameters::RSA(_) => "RSA",
-            AlgorithmParameters::OctectKey { .. } => "OctectKey",
+            AlgorithmParameters::OctetKey { .. } => "OctetKey",
         };
         write!(f, "{} {{ .. }}", algo_type)
     }
@@ -264,15 +264,15 @@ impl AlgorithmParameters {
         match *self {
             AlgorithmParameters::EllipticCurve(_) => KeyType::EllipticCurve,
             AlgorithmParameters::RSA(_) => KeyType::RSA,
-            AlgorithmParameters::OctectKey { .. } => KeyType::Octect,
+            AlgorithmParameters::OctetKey { .. } => KeyType::Octet,
         }
     }
 
-    /// Return the byte sequence of an octect key
-    pub fn octect_key(&self) -> Result<&[u8], Error> {
+    /// Return the byte sequence of an octet key
+    pub fn octet_key(&self) -> Result<&[u8], Error> {
         match *self {
-            AlgorithmParameters::OctectKey { ref value, .. } => Ok(value),
-            _ => Err(unexpected_key_type_error!(KeyType::Octect, self.key_type())),
+            AlgorithmParameters::OctetKey { ref value, .. } => Ok(value),
+            _ => Err(unexpected_key_type_error!(KeyType::Octet, self.key_type())),
         }
     }
 }
@@ -460,18 +460,18 @@ impl Default for RSAKeyType {
     }
 }
 
-/// Key type value for an Octect symmetric Key.
+/// Key type value for an Octet symmetric Key.
 /// This single value enum is a workaround for Rust not supporting associated constants.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum OctectKeyType {
+pub enum OctetKeyType {
     /// Key type value for an RSA Key.
     #[serde(rename = "oct")]
-    Octect,
+    Octet,
 }
 
-impl Default for OctectKeyType {
+impl Default for OctetKeyType {
     fn default() -> Self {
-        OctectKeyType::Octect
+        OctetKeyType::Octet
     }
 }
 
@@ -523,10 +523,10 @@ pub struct JWK {
 }
 
 impl JWK {
-    /// Convenience to create a new bare-bones Octect key
-    pub fn new_octect_key(key: &[u8]) -> Self {
+    /// Convenience to create a new bare-bones Octet key
+    pub fn new_octet_key(key: &[u8]) -> Self {
         Self {
-            algorithm: AlgorithmParameters::OctectKey {
+            algorithm: AlgorithmParameters::OctetKey {
                 value: key.to_vec(),
                 key_type: Default::default(),
             },
@@ -540,9 +540,9 @@ impl JWK {
         self.algorithm.key_type()
     }
 
-    /// Return the byte sequence of an octect key
-    pub fn octect_key(&self) -> Result<&[u8], Error> {
-        self.algorithm.octect_key()
+    /// Return the byte sequence of an octet key
+    pub fn octet_key(&self) -> Result<&[u8], Error> {
+        self.algorithm.octet_key()
     }
 }
 
@@ -937,7 +937,7 @@ mod tests {
                         )),
                         ..Default::default()
                     },
-                    algorithm: AlgorithmParameters::OctectKey {
+                    algorithm: AlgorithmParameters::OctetKey {
                         key_type: Default::default(),
                         value: vec![
                             25, 172, 32, 130, 225, 114, 26, 181, 138, 106, 254, 192, 95, 133, 74,
@@ -950,7 +950,7 @@ mod tests {
                         key_id: Some("HMAC key used in JWS spec Appendix A.1 example".to_string()),
                         ..Default::default()
                     },
-                    algorithm: AlgorithmParameters::OctectKey {
+                    algorithm: AlgorithmParameters::OctetKey {
                         key_type: Default::default(),
                         value: vec![
                             3, 35, 53, 75, 43, 15, 165, 188, 131, 126, 6, 101, 119, 123, 166, 143,
@@ -1161,7 +1161,7 @@ mod tests {
                         key_id: Some("first".to_string()),
                         ..Default::default()
                     },
-                    algorithm: AlgorithmParameters::OctectKey {
+                    algorithm: AlgorithmParameters::OctetKey {
                         key_type: Default::default(),
                         value: Default::default(),
                     },
@@ -1171,14 +1171,14 @@ mod tests {
                         key_id: Some("second".to_string()),
                         ..Default::default()
                     },
-                    algorithm: AlgorithmParameters::OctectKey {
+                    algorithm: AlgorithmParameters::OctetKey {
                         key_type: Default::default(),
                         value: Default::default(),
                     },
                 },
                 JWK {
                     common: Default::default(),
-                    algorithm: AlgorithmParameters::OctectKey {
+                    algorithm: AlgorithmParameters::OctetKey {
                         key_type: Default::default(),
                         value: Default::default(),
                     },

@@ -287,7 +287,7 @@ impl From<RegisteredHeader> for Header<Empty> {
 /// # fn main() {
 /// let payload = "The true sign of intelligence is not knowledge but imagination.";
 /// // You would usually have your own AES key for this, but we will use a zeroed key as an example
-/// let key: JWK<Empty> = JWK::new_octect_key(&vec![0; 256 / 8], Default::default());
+/// let key: JWK<Empty> = JWK::new_octet_key(&vec![0; 256 / 8], Default::default());
 ///
 /// // Construct the JWE
 /// let jwe = jwe::Compact::new_decrypted(
@@ -430,7 +430,7 @@ where
 
                 // Steps 4, 5: Determine the JWE Encrypted Key (encrypt the CEK).
                 let encrypted_cek = header.registered.cek_algorithm.wrap_key(
-                    cek.algorithm.octect_key()?,
+                    cek.algorithm.octet_key()?,
                     key,
                     key_option,
                 )?;
@@ -686,7 +686,7 @@ mod tests {
         not_err!(rng().fill(&mut key));
         jwk::JWK {
             common: Default::default(),
-            algorithm: jwk::AlgorithmParameters::OctectKey {
+            algorithm: jwk::AlgorithmParameters::OctetKey {
                 key_type: Default::default(),
                 value: key,
             },
@@ -844,8 +844,6 @@ mod tests {
 
         let recipient_key = cek_ecdh_key();
         let recipient_public_key = recipient_key.clone();
-
-        println!("recipient_public_key: {:?}", recipient_public_key);
 
         let options = EncryptionOptions::ECDH_ES {
             ephemeral_public_key: recipient_public_key,
