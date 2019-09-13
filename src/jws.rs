@@ -311,6 +311,8 @@ pub enum Secret {
     /// let secret = Secret::rsa_keypair_from_file("test/fixtures/rsa_private_key.der");
     /// ```
     RsaKeyPair(Arc<signature::RsaKeyPair>),
+    /// An EdDSA Key pair
+    Ed25519KeyPair(Arc<signature::Ed25519KeyPair>),
     /// An ECDSA Key pair constructed from a PKCS8 DER encoded private key
     ///
     /// To generate a private key, use
@@ -420,6 +422,12 @@ impl Secret {
 impl From<jwk::RSAKeyParameters> for Secret {
     fn from(rsa: jwk::RSAKeyParameters) -> Self {
         rsa.jws_public_key_secret()
+    }
+}
+
+impl From<Arc<signature::Ed25519KeyPair>> for Secret {
+    fn from(keypair: Arc<signature::Ed25519KeyPair>) -> Self {
+        Secret::Ed25519KeyPair(keypair)
     }
 }
 
